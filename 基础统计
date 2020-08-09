@@ -1,0 +1,169 @@
+#求众数（mode）
+getmode <- function(v) {
+   uniqv <- unique(v)
+   uniqv[which.max(tabulate(match(v, uniqv)))]
+}      
+#自定义函数
+dat <- iris 
+colnames(dat)
+mode_Sepal.Length <- getmode(dat$Sepal.Length);mode_Sepal.Length
+mod_Sepal.Width <- getmode(dat$Sepal.Width);mod_Sepal.Width
+mod_Petal.Length <- getmode(dat$Petal.Length);mod_Petal.Length
+mod_Petal.Width <- getmode(dat$Petal.Width);mod_Petal.Width
+
+
+cor(dat$Sepal.Length, dat$Sepal.Width, use = "everything",
+    method = "pearson")
+    
+
+sca <- scale(dat[,1:3],center=T,scale=F) #center表示数据中心化，scale表示数据标准化
+sca <- scale(dat[,1:3],center=T,scale=T) #或scale(data)
+a<-round(sca,2)  #约取2位有效数字
+a
+#看一下正态分布图片
+d<-density(a)
+plot(d)
+
+#载入r包airway并且通过assay函数拿到其表达矩阵后计算每列之间的相关性
+options(stringsAsFactors = F)
+library(airway)
+data(airway)
+#这里需要自行学习bioconductor里面的RangedSummarizedExperiment对象
+airway 
+RNAseq_expr=assay(airway)
+colnames(RNAseq_expr) 
+RNAseq_expr[1:4,1:4] 
+# RNAseq_expr 是一个数值型矩阵，属于连续性变量，可以探索众数、分位数和平均数 ，极差，方差和标准差等统计学指标
+RNAseq_expr <- log2(RNAseq_expr+1)  #进行log2()转化
+RNAseq_gl=colData(airway)[,3]
+table(RNAseq_gl)
+RNAseq_gl <- relevel(RNAseq_gl,ref = "untrt")
+annotation_col=data.frame(group=RNAseq_gl)
+rownames(annotation_col)=colnames(RNAseq_expr) 
+M <- cor(RNAseq_expr);M
+pheatmap::pheatmap(M,show_rownames = T, show_colnames = T, annotation_col = annotation_col) 
+
+
+#表达矩阵相关
+
+#Q1: 把RNAseq_expr第一列全部加1后取log2后计算平均值和标准差
+tmp=log2(RNAseq_expr[,1]+1)
+mean(tmp)
+sd(tmp)
+
+#Q2: 根据上一步得到平均值和标准差生成同样个数的随机的正态分布数值
+
+a=rnorm(length(tmp),mean = mean(tmp),sd = sd(tmp))
+a=sort(a)
+plot(a)
+points(sort(tmp))
+
+#Q3: 删除RNAseq_expr第一列低于5的数据后，重复Q1和Q2
+tmp=RNAseq_expr[,1]
+tmp=tmp[tmp>5]
+tmp=log2(tmp)
+a=rnorm(length(tmp),mean = mean(tmp),sd = sd(tmp))
+a=sort(a)
+plot(a)
+points(sort(tmp))
+
+#Q4: 基于Q3对RNAseq_expr的第一列和第二列进行T检验
+x=RNAseq_expr[,1]
+x=x[x>5]
+x=log2(x)   #视情况进行转化
+
+y=RNAseq_expr[,2]
+y=y[y>5]
+y=log2(y) #视情况进行转化
+
+t.test(x,y)
+library(ggpubr)
+df=data.frame(value=c(x,y),
+ group=c(rep('x',length(x)),rep('y',length(y))))
+ggboxplot(df, y = "value", x = "group")
+
+#Q5: 取RNAseq_expr行之和最大的那一行根据分组矩阵进行T检验
+#法一：（没有标准化）
+pos=which.max(rowSums(RNAseq_expr))
+t.test(RNAseq_expr[pos,]~RNAseq_gl)
+pos
+#法二：（log2转化后的数据）
+df <- as.data.frame(RNAseq_expr)
+df$sum <- apply(df,1,sum)
+df <- df[order(df$sum,decreasing = T),]
+dat <- df[1,1:ncol(df)-1]
+library(reshape2)
+dat_m <- melt(dat)
+group <- colData(airway)[,3]
+group <- relevel(group,ref = "untrt");group
+dat_m$group <- group
+t.test(dat_m$value~dat_m$group)
+
+#Q6: 取RNAseq_expr的MAD最大的那一行根据分组矩阵进行T检验
+
+pos=which.max(apply(RNAseq_expr,1,mad))
+t.test(RNAseq_expr[pos,]~RNAseq_gl)
+pos
+
+#Q7: 对RNAseq_expr全部加1后取log2后重复Q5和Q6,看看是不是基因变化了，统计结果也变化了
+RNAseq_expr=log2(RNAseq_expr+1)
+pos=which.max(rowSums(RNAseq_expr))
+pos
+t.test(RNAseq_expr[pos,]~RNAseq_gl)
+pos=which.max(apply(RNAseq_expr,1,mad))
+pos
+t.test(RNAseq_expr[pos,]~RNAseq_gl)
+
+#Q8: 取RNAseq_expr矩阵的MAD最高的100行，对列和行分别进行层次聚类（画聚类树状图）
+cg=names(tail(sort(apply(RNAseq_expr,1,mad)),100))
+dat=RNAseq_expr[cg,]
+plot(hclust(dist(t(dat))))   #主要对样本进行聚类
+colnames(dat)
+RNAseq_gl
+plot(hclust(dist( dat )))
+#检查一下聚类结果跟样本的处理信息是否能对应
+
+#Q9: 取RNAseq_expr矩阵的SD最高的100行，对列和行分别进行层次聚类（画聚类树状图）
+dat <- tail(sort(apply(RNAseq_expr,1,sd)),100)
+df <- RNAseq_expr[names(dat),]
+plot(hclust(dist(t(df))))
+colnames(df)
+group
+plot(hclust(dist(df)))
+#不同的标准（mad、sd）得到的聚类结果不一样，再从主成分分析方面进行验证
+dat=as.data.frame(t(RNAseq_expr))
+dat[1:4,1:4]
+library(FactoMineR)#画主成分分析图需要加载这两个包
+library(factoextra) 
+
+#pca的统一操作走起
+dat.pca <- PCA(dat, graph = FALSE)
+pca_plot <- fviz_pca_ind(dat.pca,
+                         geom.ind = "point", # show points only (nbut not "text")
+                         col.ind = group, # color by groups
+                         #palette = c("#00AFBB", "#E7B800"),
+                         addEllipses = TRUE, # Concentration ellipses
+                         legend.title = "Groups"
+)
+pca_plot  #浓度椭圆
+
+pca_plot <- fviz_pca_ind(dat.pca,
+                         geom.ind = "point", # show points only (nbut not "text")
+                         col.ind = group, # color by groups
+                         #palette = c("#00AFBB", "#E7B800"),
+                         addEllipses = TRUE, 
+                         ellipse.type = "confidence",
+                         legend.title = "Groups"
+)
+pca_plot  #置信椭圆
+
+
+
+
+#Q10: 对Q8矩阵按照行和列分别归一化并且热图可视化
+cg=names(tail(sort(apply(RNAseq_expr,1,mad)),100))
+dat=RNAseq_expr[cg,]
+pheatmap::pheatmap(scale(dat))  #scale默认对列进行标准化
+pheatmap::pheatmap(t(scale(t(dat))))
+#使用mad前100个基因并不能画出有明显差异的热图，还需要进行差异分析，效果可能更好。
+
